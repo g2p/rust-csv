@@ -102,6 +102,7 @@ foo,\"bar,baz\"
 #[cfg(test)]
 extern crate arrayvec;
 extern crate memchr;
+extern crate simd;
 
 pub use reader::{
     Reader, ReaderBuilder,
