@@ -1,4 +1,5 @@
 use core::fmt;
+use simd;
 
 use Terminator;
 
@@ -1212,17 +1213,24 @@ impl Dfa {
 struct DfaClasses {
     classes: [u8; CLASS_SIZE],
     next_class: usize,
+    needle_vec: simd::u8x16,
 }
 
 impl DfaClasses {
     fn new() -> DfaClasses {
-        DfaClasses { classes: [0; CLASS_SIZE], next_class: 1 }
+        DfaClasses {
+            classes: [0; CLASS_SIZE],
+            next_class: 1,
+            needle_vec: simd::u8x16::splat(0),
+        }
     }
 
     fn add(&mut self, b: u8) {
-        if self.next_class > CLASS_SIZE {
+        if self.next_class > CLASS_SIZE || self.next_class > 16 {
             panic!("added too many classes")
         }
+        self.needle_vec = self.needle_vec.replace(
+            self.next_class as u32 - 1, b);
         self.classes[b as usize] = self.next_class as u8;
         self.next_class = self.next_class + 1;
     }
@@ -1249,6 +1257,24 @@ impl DfaClasses {
         output: &mut [u8],
         nout: &mut usize,
     ) {
+        while
+            *nin + 16 <= input.len()
+            && *nout + 16 <= output.len()
+        {
+            let haystack_vec = simd::u8x16::load(input, *nin);
+            let i = unsafe {
+                simd::x86::sse4_2::x86_mm_cmpestri(
+                    self.needle_vec.to_i8(), self.next_class as i32 - 1,
+                    haystack_vec.to_i8(), 16, 0)
+            };
+            output[*nout..*nout + i as usize].copy_from_slice(
+                &input[*nin..*nin + i as usize]);
+            *nin += i as usize;
+            *nout += i as usize;
+            if i < 16 {
+                return;
+            }
+        }
         while
             *nin < input.len()
             && *nout < output.len()
